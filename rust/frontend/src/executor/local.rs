@@ -126,7 +126,18 @@ impl LocalExecutor {
             .await?;
         if let Some(dimensionality) = collection_and_segments.collection.dimension {
             let allowed_user_ids = if plan.filter.where_clause.is_none() {
-                plan.filter.query_ids.unwrap_or_default()
+                match plan.filter.query_ids {
+                    Some(ids) => {
+                        if ids.is_empty() {
+                            return Ok(vec![Default::default(); plan.knn.embeddings.len()]);
+                        }
+
+                        ids
+                    }
+                    None => {
+                        vec![]
+                    }
+                }
             } else {
                 let filter_plan = Get {
                     scan: plan.scan.clone(),
