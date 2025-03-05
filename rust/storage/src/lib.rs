@@ -72,6 +72,8 @@ pub enum PutError {
     S3Error(#[from] s3::S3PutError),
     #[error("Local storage error: {0}")]
     LocalError(String),
+    #[error("If-Match failed")]
+    ConditionNotMet,
 }
 
 impl ChromaError for PutError {
@@ -80,6 +82,7 @@ impl ChromaError for PutError {
             PutError::ObjectStoreError(_) => ErrorCodes::Internal,
             PutError::S3Error(_) => ErrorCodes::Internal,
             PutError::LocalError(_) => ErrorCodes::Internal,
+            PutError::ConditionNotMet => ErrorCodes::FailedPrecondition,
         }
     }
 }
@@ -121,6 +124,8 @@ pub enum RenameError {
     S3Error(#[from] s3::S3PutError),
     #[error("Local storage error: {0}")]
     LocalError(String),
+    #[error("If-Match failed")]
+    ConditionNotMet,
 }
 
 impl ChromaError for RenameError {
@@ -129,6 +134,7 @@ impl ChromaError for RenameError {
             RenameError::ObjectStoreError(_) => ErrorCodes::Internal,
             RenameError::S3Error(_) => ErrorCodes::Internal,
             RenameError::LocalError(_) => ErrorCodes::Internal,
+            RenameError::ConditionNotMet => ErrorCodes::FailedPrecondition,
         }
     }
 }
@@ -303,6 +309,7 @@ impl Storage {
                     PutError::ObjectStoreError(e) => RenameError::ObjectStoreError(e),
                     PutError::S3Error(e) => RenameError::S3Error(e),
                     PutError::LocalError(e) => RenameError::LocalError(e),
+                    PutError::ConditionNotMet => RenameError::ConditionNotMet,
                 }),
             Storage::S3(s3) => s3
                 .rename(src_key, dst_key)
@@ -389,11 +396,16 @@ impl PutOptions {
         Self::new(true, None).unwrap()
     }
 
+    pub fn if_matches(e_tag: &ETag) -> Self {
+        // SAFETY(rescrv):  This is always safe because of a unit test.
+        Self::new(false, Some(e_tag.clone())).unwrap()
+    }
+
     pub fn new(
         if_not_exists: bool,
         if_match: Option<ETag>,
     ) -> Result<PutOptions, PutOptionsCreateError> {
-        if !if_not_exists && if_match.is_some() {
+        if if_not_exists && if_match.is_some() {
             return Err(PutOptionsCreateError::IfNotExistsAndIfMatchEnabled);
         }
         Ok(PutOptions {
@@ -403,8 +415,8 @@ impl PutOptions {
     }
 }
 
-#[derive(Clone, Eq, PartialEq, Debug)]
-pub struct ETag(String);
+#[derive(Clone, Eq, PartialEq, Debug, serde::Deserialize, serde::Serialize)]
+pub struct ETag(pub String);
 
 /////////////////////////////////////////////// tests //////////////////////////////////////////////
 
@@ -415,5 +427,6 @@ mod tests {
     #[test]
     fn put_options_ctors() {
         let _x = PutOptions::if_not_exists();
+        let _x = PutOptions::if_matches(&ETag("123".to_string()));
     }
 }
